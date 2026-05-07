@@ -1,25 +1,35 @@
 import 'package:flutter/material.dart';
-import 'login/login.dart'; // Bizim yazdığımız ekranı içeri aktarıyor
+import 'login/login.dart';
 
+/// Uygulamanın başlangıç noktası
 void main() {
   runApp(const MagiAiApp());
 }
 
+/// Ana uygulama widget'ı — Tüm tema ve rota ayarları burada yapılır.
 class MagiAiApp extends StatelessWidget {
   const MagiAiApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      debugShowCheckedModeBanner:
-          false, // Sağ üstteki gıcık DEBUG yazısını kaldırır
+      // Sağ üstteki "DEBUG" bandını kaldırır
+      debugShowCheckedModeBanner: false,
+
       title: 'Magi AI',
+
+      // Uygulama genelinde geçerli olan koyu tema ayarları
       theme: ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: const Color(0xFF0F172A),
-        primarySwatch: Colors.deepPurple,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF6366F1),
+          brightness: Brightness.dark,
+        ),
       ),
-      home: const LoginScreen(), // Uygulama direkt bizim ekrandan başlar
+
+      // Uygulama başladığında ilk gösterilecek ekran
+      home: const LoginScreen(),
     );
   }
 }
