@@ -1,8 +1,15 @@
 import 'package:flutter/material.dart';
+import '../auth/license_gate_screen.dart';
+import '../auth/server_config_screen.dart';
+import '../core/network/api_exception.dart';
+import '../core/network/realtime_service.dart';
 import '../mainpage/mainpage.dart';
+import '../services/auth_service.dart';
+import '../services/push_notification_service.dart';
 
 /// Giriş ekranı — Kullanıcı adı ve şifre ile giriş yapılır.
-/// Başarılı girişte MainPage'e yönlendirilir.
+/// Hesaplar admin tarafından web panelinden oluşturulur; burada kayıt
+/// ekranı yoktur (self-servis kayıt akışı yok).
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -11,11 +18,91 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  // Şifrenin gizli/görünür durumunu takip eder
-  bool _obscurePassword = true;
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  // "Beni Hatırla" checkbox durumunu takip eder
-  bool _rememberMe = false;
+  bool _obscurePassword = true;
+  bool _rememberMe = true;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
+
+    if (username.isEmpty || password.isEmpty) {
+      setState(() => _error = 'Kullanıcı adı ve şifre gerekli.');
+      return;
+    }
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      await AuthService.instance.login(username, password);
+      if (!mounted) return;
+      PushNotificationService.instance.registerCurrentToken();
+      RealtimeService.instance.connect();
+
+      final license = await AuthService.instance.licenseStatus();
+      if (!mounted) return;
+
+      if (!license.valid) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => LicenseGateScreen(reason: license.reason, isAdmin: license.isAdmin),
+          ),
+        );
+        return;
+      }
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(builder: (_) => const MainPage()),
+      );
+    } on ApiException catch (e) {
+      setState(() => _error = e.message);
+    } catch (_) {
+      setState(() => _error = 'Giriş yapılamadı. Tekrar deneyin.');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  void _showForgotPasswordInfo() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        title: const Text('Şifremi Unuttum', style: TextStyle(color: Colors.white)),
+        content: const Text(
+          'Şifre sıfırlama işlemi sistem yöneticiniz tarafından web panelinden yapılır. '
+          'Lütfen yöneticinizle iletişime geçin.',
+          style: TextStyle(color: Colors.white70),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Tamam', style: TextStyle(color: Color(0xFF8B5CF6))),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openServerConfig() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ServerConfigScreen()),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,6 +158,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     label: "Kullanıcı Adı",
                     icon: Icons.person,
                     hint: "kullanici_adi",
+                    controller: _usernameController,
                   ),
 
                   const SizedBox(height: 24),
@@ -80,6 +168,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     label: "Panel Giriş Şifresi",
                     icon: Icons.lock,
                     hint: "Panel şifrenizi girin",
+                    controller: _passwordController,
                     isPassword: true,
                   ),
 
@@ -88,12 +177,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   // ─── Beni Hatırla + Şifremi Unuttum Satırı ───
                   _buildRememberForgotRow(),
 
+                  if (_error != null) ...[
+                    const SizedBox(height: 16),
+                    Text(
+                      _error!,
+                      style: const TextStyle(color: Color(0xFFEF4444), fontSize: 13),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+
                   const SizedBox(height: 24),
 
                   // ─── Giriş Butonu ───
                   _buildLoginButton(),
 
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 24),
+
+                  GestureDetector(
+                    onTap: _openServerConfig,
+                    child: const Text(
+                      "Farklı bir sunucuya bağlan",
+                      style: TextStyle(fontSize: 12, color: Colors.white38, decoration: TextDecoration.underline),
+                    ),
+                  ),
+
+                  const SizedBox(height: 16),
 
                   // ─── Versiyon Bilgisi ───
                   Text(
@@ -196,9 +304,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         // Sağ taraf — Şifremi Unuttum linki
         GestureDetector(
-          onTap: () {
-            // TODO: Şifremi unuttum sayfasına yönlendir
-          },
+          onTap: _showForgotPasswordInfo,
           child: const Text(
             "Şifremi Unuttum?",
             style: TextStyle(
@@ -213,7 +319,7 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
-  /// "Güvenli Giriş Yap" butonu — basıldığında MainPage'e yönlendirir.
+  /// "Güvenli Giriş Yap" butonu — basıldığında backend'e login isteği atar.
   Widget _buildLoginButton() {
     return SizedBox(
       width: double.infinity,
@@ -225,33 +331,28 @@ class _LoginScreenState extends State<LoginScreen> {
             borderRadius: BorderRadius.circular(12),
           ),
         ),
-
-        // Butona basıldığında çalışacak fonksiyon
-        onPressed: () {
-          // Login ekranını yığından çıkarıp MainPage'e geçiş yapar.
-          // pushReplacement kullanıyoruz ki geri tuşuyla login'e dönülemesin.
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => const MainPage(),
-            ),
-          );
-        },
-
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.shield, color: Colors.white),
-            SizedBox(width: 8),
-            Text(
-              "Güvenli Giriş Yap",
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+        onPressed: _loading ? null : _submit,
+        child: _loading
+            ? const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+              )
+            : const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.shield, color: Colors.white),
+                  SizedBox(width: 8),
+                  Text(
+                    "Güvenli Giriş Yap",
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -262,6 +363,7 @@ class _LoginScreenState extends State<LoginScreen> {
     required String label,
     required IconData icon,
     required String hint,
+    required TextEditingController controller,
     bool isPassword = false,
   }) {
     return Column(
@@ -288,6 +390,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
         // Input alanı
         TextField(
+          controller: controller,
           obscureText: isPassword ? _obscurePassword : false,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(

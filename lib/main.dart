@@ -1,9 +1,27 @@
 import 'package:flutter/material.dart';
+import 'app_root.dart';
+import 'core/network/api_client.dart';
 import 'login/login.dart';
+import 'services/push_notification_service.dart';
 
 final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.dark);
+final GlobalKey<NavigatorState> rootNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  // Oturum tamamen geçersiz kaldığında (refresh de başarısız) herhangi bir
+  // ekrandan login'e dönebilmek için merkezi navigator key kullanılır.
+  ApiClient.instance.onUnauthorized = () {
+    rootNavigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  };
+
+  // Firebase projesi henüz tanımlı değilse sessizce no-op olur (bkz. PushNotificationService).
+  PushNotificationService.instance.initialize();
+
   runApp(const MagiAiApp());
 }
 
@@ -16,6 +34,7 @@ class MagiAiApp extends StatelessWidget {
       valueListenable: themeNotifier,
       builder: (context, mode, _) {
         return MaterialApp(
+          navigatorKey: rootNavigatorKey,
           debugShowCheckedModeBanner: false,
           title: 'Magi AI',
           themeMode: mode,
@@ -35,7 +54,7 @@ class MagiAiApp extends StatelessWidget {
               brightness: Brightness.dark,
             ),
           ),
-          home: const LoginScreen(),
+          home: const AppRoot(),
         );
       },
     );

@@ -1,10 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:mail_assistant_mobile/main.dart' show themeNotifier;
 import 'package:mail_assistant_mobile/theme/app_colors.dart';
+import '../login/login.dart';
+import '../services/auth_service.dart';
+import '../services/profile_service.dart';
 
 // ─── Profil Sayfası ───────────────────────────────────────────────────────
-class ProfilePage extends StatelessWidget {
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  String _fullName = '';
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final profile = await ProfileService.instance.getProfile();
+      if (!mounted) return;
+      setState(() {
+        _fullName = profile.fullName;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    await AuthService.instance.logout();
+    if (!context.mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
+  String get _initials {
+    final parts = _fullName.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,9 +63,9 @@ class ProfilePage extends StatelessWidget {
         children: [
           _buildHeader(context, c),
           const SizedBox(height: 24),
-          _buildProfileCard(c),
-          const SizedBox(height: 20),
-          _buildStatsGrid(c),
+          _loading
+              ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
+              : _buildProfileCard(c),
           const SizedBox(height: 20),
           _buildActionButtons(context, c),
         ],
@@ -85,10 +132,10 @@ class ProfilePage extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Center(
+                    child: Center(
                       child: Text(
-                        'SC',
-                        style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                        _initials,
+                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                       ),
                     ),
                   ),
@@ -113,145 +160,12 @@ class ProfilePage extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Sadıkcan Yılmaz',
+                      _fullName.isEmpty ? 'Kullanıcı' : _fullName,
                       style: TextStyle(color: c.textPrimary, fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'sadikcan@asispo.co',
-                      style: TextStyle(color: c.textSecondary, fontSize: 13),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _buildBadge('PRO', const Color(0xFF6366F1)),
-                        const SizedBox(width: 8),
-                        _buildBadge('Satış Direktörü', const Color(0xFF0F766E)),
-                      ],
                     ),
                   ],
                 ),
               ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Divider(color: c.divider, height: 1),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Icon(Icons.business_outlined, color: c.textHint, size: 16),
-              const SizedBox(width: 8),
-              Text('Nova', style: TextStyle(color: c.textSecondary, fontSize: 13)),
-              const SizedBox(width: 16),
-              Icon(Icons.people_outline, color: c.textHint, size: 16),
-              const SizedBox(width: 8),
-              Text('1.382 takipçi', style: TextStyle(color: c.textSecondary, fontSize: 13)),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBadge(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.2),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-
-  Widget _buildStatsGrid(AppColors c) {
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.auto_awesome_outlined,
-                value: '1.284',
-                label: 'AI Bilgi',
-                color: const Color(0xFF6366F1),
-                c: c,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.verified_outlined,
-                value: '%94',
-                label: 'Doğruluk',
-                color: const Color(0xFF22C55E),
-                c: c,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.mail_outline,
-                value: '3.412',
-                label: 'Mail',
-                color: const Color(0xFF0EA5E9),
-                c: c,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildStatCard(
-                icon: Icons.timer_outlined,
-                value: '1m 47s',
-                label: 'Ort. Süre',
-                color: const Color(0xFFF59E0B),
-                c: c,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatCard({
-    required IconData icon,
-    required String value,
-    required String label,
-    required Color color,
-    required AppColors c,
-  }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.25)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(value, style: TextStyle(color: c.textPrimary, fontSize: 18, fontWeight: FontWeight.bold)),
-              Text(label, style: TextStyle(color: c.textSecondary, fontSize: 11)),
             ],
           ),
         ],
@@ -262,23 +176,6 @@ class ProfilePage extends StatelessWidget {
   Widget _buildActionButtons(BuildContext context, AppColors c) {
     return Column(
       children: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton.icon(
-            onPressed: () {},
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6366F1),
-              padding: const EdgeInsets.symmetric(vertical: 14),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-            ),
-            icon: const Icon(Icons.rocket_launch_outlined, color: Colors.white, size: 18),
-            label: const Text(
-              'Hesap Yükselt',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
@@ -299,14 +196,14 @@ class ProfilePage extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed: () {},
+                onPressed: () => _logout(context),
                 style: OutlinedButton.styleFrom(
-                  side: BorderSide(color: c.cardBorder),
+                  side: const BorderSide(color: Color(0xFFEF4444)),
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                icon: Icon(Icons.share_outlined, color: c.textSecondary, size: 16),
-                label: Text('Paylaş', style: TextStyle(color: c.textSecondary, fontSize: 13)),
+                icon: const Icon(Icons.logout, color: Color(0xFFEF4444), size: 16),
+                label: const Text('Çıkış Yap', style: TextStyle(color: Color(0xFFEF4444), fontSize: 13)),
               ),
             ),
           ],
@@ -884,25 +781,73 @@ class _ProfileInfoPage extends StatefulWidget {
 }
 
 class _ProfileInfoPageState extends State<_ProfileInfoPage> {
-  final _nameController = TextEditingController(text: 'Sadıkcan Yılmaz');
-  final _emailController = TextEditingController(text: 'sadikcan@asispo.co');
-  final _phoneController = TextEditingController(text: '+90 532 *** ** 47');
-  final _signatureController = TextEditingController(
-    text: 'Saygılarımla,\nSadıkcan Yılmaz\nSatış Direktörü / ACIK',
-  );
+  final _nameController = TextEditingController();
+  final _signatureController = TextEditingController();
+  bool _loading = true;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    try {
+      final profile = await ProfileService.instance.getProfile();
+      if (!mounted) return;
+      setState(() {
+        _nameController.text = profile.fullName;
+        _signatureController.text = profile.signature;
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await ProfileService.instance.updateProfile(
+        fullName: _nameController.text.trim(),
+        signature: _signatureController.text,
+      );
+      if (!mounted) return;
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Kaydedilemedi: $e')));
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
 
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
-    _phoneController.dispose();
     _signatureController.dispose();
     super.dispose();
+  }
+
+  String get _initials {
+    final parts = _nameController.text.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) return parts[0].substring(0, 1).toUpperCase();
+    return (parts.first.substring(0, 1) + parts.last.substring(0, 1)).toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
     final c = AppColors.of(context);
+    if (_loading) {
+      return Scaffold(
+        backgroundColor: c.bg,
+        appBar: _buildAppBar(context, 'Profil Bilgileri'),
+        body: const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
+      );
+    }
     return Scaffold(
       backgroundColor: c.bg,
       appBar: _buildAppBar(context, 'Profil Bilgileri'),
@@ -930,10 +875,10 @@ class _ProfileInfoPageState extends State<_ProfileInfoPage> {
                       ),
                     ],
                   ),
-                  child: const Center(
+                  child: Center(
                     child: Text(
-                      'SC',
-                      style: TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                      _initials,
+                      style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ),
@@ -962,10 +907,6 @@ class _ProfileInfoPageState extends State<_ProfileInfoPage> {
             child: Column(
               children: [
                 _buildField('Ad Soyad', _nameController, Icons.person_outline, c),
-                Divider(color: c.divider, height: 1),
-                _buildField('E-posta', _emailController, Icons.mail_outline, c),
-                Divider(color: c.divider, height: 1),
-                _buildField('Telefon', _phoneController, Icons.phone_outlined, c),
               ],
             ),
           ),
@@ -989,16 +930,22 @@ class _ProfileInfoPageState extends State<_ProfileInfoPage> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: _saving ? null : _save,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF6366F1),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
               ),
-              child: const Text(
-                'Kaydet',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
-              ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                    )
+                  : const Text(
+                      'Kaydet',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 15),
+                    ),
             ),
           ),
         ],
@@ -1050,6 +997,99 @@ class _SecurityPageState extends State<_SecurityPage> {
   bool _twoFactor = true;
   bool _biometric = true;
   bool _suspiciousAlert = true;
+
+  void _showChangePasswordDialog(AppColors c) {
+    final oldController = TextEditingController();
+    final newController = TextEditingController();
+    bool saving = false;
+    String? error;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (ctx, setDialogState) {
+            return AlertDialog(
+              backgroundColor: c.card,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Text('Şifre Değiştir', style: TextStyle(color: c.textPrimary, fontSize: 18)),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: oldController,
+                    obscureText: true,
+                    style: TextStyle(color: c.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: 'Mevcut şifre',
+                      hintStyle: TextStyle(color: c.textHint),
+                      filled: true,
+                      fillColor: c.inputBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: newController,
+                    obscureText: true,
+                    style: TextStyle(color: c.textPrimary),
+                    decoration: InputDecoration(
+                      hintText: 'Yeni şifre',
+                      hintStyle: TextStyle(color: c.textHint),
+                      filled: true,
+                      fillColor: c.inputBg,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                    ),
+                  ),
+                  if (error != null) ...[
+                    const SizedBox(height: 8),
+                    Text(error!, style: const TextStyle(color: Color(0xFFEF4444), fontSize: 12)),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext),
+                  child: Text('İptal', style: TextStyle(color: c.textSecondary)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF6366F1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          if (oldController.text.isEmpty || newController.text.isEmpty) {
+                            setDialogState(() => error = 'Her iki alan da gerekli.');
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            error = null;
+                          });
+                          try {
+                            await ProfileService.instance.changePassword(
+                              oldPassword: oldController.text,
+                              newPassword: newController.text,
+                            );
+                            if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          } catch (e) {
+                            setDialogState(() {
+                              saving = false;
+                              error = e.toString();
+                            });
+                          }
+                        },
+                  child: Text(saving ? '...' : 'Kaydet', style: const TextStyle(color: Colors.white)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1114,16 +1154,19 @@ class _SecurityPageState extends State<_SecurityPage> {
                           style: TextStyle(color: c.textSecondary, fontSize: 20, letterSpacing: 4),
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEA580C).withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: const Color(0xFFEA580C).withValues(alpha: 0.4)),
-                        ),
-                        child: const Text(
-                          'Değiştir',
-                          style: TextStyle(color: Color(0xFFEA580C), fontSize: 12, fontWeight: FontWeight.w600),
+                      GestureDetector(
+                        onTap: () => _showChangePasswordDialog(c),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEA580C).withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: const Color(0xFFEA580C).withValues(alpha: 0.4)),
+                          ),
+                          child: const Text(
+                            'Değiştir',
+                            style: TextStyle(color: Color(0xFFEA580C), fontSize: 12, fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
                     ],

@@ -1,6 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:mail_assistant_mobile/settings/settings.dart';
 import 'package:mail_assistant_mobile/theme/app_colors.dart';
+import '../approval/approval_queue_screen.dart';
+import '../contacts/contacts_screen.dart';
+import '../core/network/api_exception.dart';
+import '../mail/mail_list_screen.dart';
+import '../messaging/messaging_hub_screen.dart';
+import '../reminders/reminders_screen.dart';
+import '../search/search_results_screen.dart';
+import '../services/dashboard_service.dart';
+import '../services/profile_service.dart';
+import '../voice/voice_command_screen.dart';
+import '../writer/writer_compose_screen.dart';
 
 /// Ana sayfa — Giriş yapıldıktan sonra gösterilen ekran.
 class MainPage extends StatefulWidget {
@@ -13,16 +24,18 @@ class MainPage extends StatefulWidget {
 class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin {
   int _currentNavIndex = 0;
   late TabController _tabController;
+  final TextEditingController _searchController = TextEditingController();
 
   // ignore: unused_field
   DateTime _selectedDate = DateTime.now();
   DateTime _focusedMonth = DateTime.now();
 
-  final String _userName = "Sadıkcan";
-  final int _bekleyenMail = 14;
-  final int _onayBekleyenIs = 6;
-  final int _kayitliSirket = 101;
-  final int _hatirlatici = 5;
+  String _userName = "";
+  bool _statsLoading = true;
+  int _bekleyenMail = 0;
+  int _onayBekleyenIs = 0;
+  int _kayitliSirket = 0;
+  int _hatirlatici = 0;
 
   final List<Map<String, dynamic>> _events = [
     {'date': DateTime(2026, 5, 10), 'title': 'Önemli Müşteri Toplantısı', 'priority': 'Acil'},
@@ -202,11 +215,32 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) setState(() {});
     });
+    _loadHomeData();
+  }
+
+  Future<void> _loadHomeData() async {
+    try {
+      final profile = await ProfileService.instance.getProfile();
+      final counts = await DashboardService.instance.getHomeCounts();
+      if (!mounted) return;
+      setState(() {
+        _userName = profile.fullName.isNotEmpty ? profile.fullName.split(' ').first : '';
+        _bekleyenMail = counts['pending_mails'] ?? 0;
+        _onayBekleyenIs = counts['pending_tasks'] ?? 0;
+        _kayitliSirket = counts['total_contacts'] ?? 0;
+        _hatirlatici = counts['reminders'] ?? 0;
+        _statsLoading = false;
+      });
+    } on ApiException catch (_) {
+      if (!mounted) return;
+      setState(() => _statsLoading = false);
+    }
   }
 
   @override
   void dispose() {
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -223,11 +257,13 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
           ),
         ),
         child: SafeArea(
-          child: _currentNavIndex == 0
-              ? _buildHomeContent(c)
-              : _currentNavIndex == 4
-                  ? const ProfilePage()
-                  : _buildPlaceholderPage(_getNavLabel(_currentNavIndex), c),
+          child: switch (_currentNavIndex) {
+            0 => _buildHomeContent(c),
+            1 => const MailListScreen(folder: MailFolder.inbox),
+            3 => const MailListScreen(folder: MailFolder.archive),
+            4 => const ProfilePage(),
+            _ => _buildPlaceholderPage(_getNavLabel(_currentNavIndex), c),
+          },
         ),
       ),
       bottomNavigationBar: _buildBottomNavBar(c),
@@ -245,6 +281,8 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
           _buildSearchBar(c),
           const SizedBox(height: 24),
           _buildStatCards(c),
+          const SizedBox(height: 24),
+          _buildQuickActions(c),
           const SizedBox(height: 28),
           _buildEventsSection(c),
         ],
@@ -261,7 +299,7 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                "Merhaba $_userName, 👋",
+                _userName.isEmpty ? "Merhaba, 👋" : "Merhaba $_userName, 👋",
                 style: TextStyle(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
@@ -282,7 +320,7 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
             borderRadius: BorderRadius.circular(12),
           ),
           child: IconButton(
-            onPressed: () {},
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RemindersScreen())),
             icon: Icon(Icons.notifications_outlined, color: c.textPrimary, size: 24),
           ),
         ),
@@ -298,6 +336,7 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
         border: Border.all(color: c.cardBorder, width: 1),
       ),
       child: TextField(
+        controller: _searchController,
         style: TextStyle(color: c.textPrimary),
         decoration: InputDecoration(
           hintText: "E-Posta, Arşiv, Rehber'de Ara...",
@@ -306,11 +345,24 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         ),
+        onSubmitted: (query) {
+          if (query.trim().isEmpty) return;
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => SearchResultsScreen(initialQuery: query.trim())),
+          );
+        },
       ),
     );
   }
 
   Widget _buildStatCards(AppColors c) {
+    if (_statsLoading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
+      );
+    }
     return Column(
       children: [
         Row(
@@ -322,6 +374,7 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
                 label: "Bekleyen Mail",
                 color: const Color(0xFF16A34A),
                 c: c,
+                onTap: () => setState(() => _currentNavIndex = 1),
               ),
             ),
             const SizedBox(width: 12),
@@ -332,6 +385,10 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
                 label: "Onay Bekleyen İş",
                 color: const Color(0xFFEA580C),
                 c: c,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const ApprovalQueueScreen()),
+                ),
               ),
             ),
           ],
@@ -370,8 +427,12 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
     required String label,
     required Color color,
     required AppColors c,
+    VoidCallback? onTap,
   }) {
-    return Container(
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
@@ -410,6 +471,71 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
             ),
           ),
         ],
+      ),
+      ),
+    );
+  }
+
+  Widget _buildQuickActions(AppColors c) {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.forum_outlined,
+            label: 'Mesajlar',
+            color: const Color(0xFF16A34A),
+            c: c,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MessagingHubScreen())),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.people_outline,
+            label: 'Kişiler',
+            color: const Color(0xFF2563EB),
+            c: c,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ContactsScreen())),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.edit_note_outlined,
+            label: 'Yeni Mail',
+            color: const Color(0xFF8B5CF6),
+            c: c,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WriterComposeScreen())),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuickActionButton({
+    required IconData icon,
+    required String label,
+    required Color color,
+    required AppColors c,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 14),
+        decoration: BoxDecoration(
+          color: c.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: c.cardBorder),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 6),
+            Text(label, style: TextStyle(color: c.textSecondary, fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
+        ),
       ),
     );
   }
@@ -706,7 +832,7 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
 
   Widget _buildCenterNavButton() {
     return GestureDetector(
-      onTap: () {},
+      onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VoiceCommandScreen())),
       child: Container(
         width: 52,
         height: 52,
