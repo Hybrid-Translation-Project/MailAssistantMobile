@@ -68,4 +68,43 @@ class MailService {
       throw ApiException.fromDioException(e);
     }
   }
+
+  /// Mevcut mail thread'ine yanıt gönderir (backend "Re:" ekler, imzalar, arşivler).
+  Future<void> sendReply(String mailId, String content) async {
+    try {
+      await _dio.post('/writer/send', data: {
+        'mail_id': mailId,
+        'content': content,
+      });
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  /// Bir maile AI ile yanıt taslağı ürettirir (action=neutral = yeniden yaz).
+  /// [customPrompt] verilirse mevcut taslağı ona göre yeniden yazar.
+  Future<String> generateAiDraft(String mailId,
+      {String currentContent = '', String? customPrompt}) async {
+    try {
+      final resp = await _dio.post('/writer/generate', data: {
+        'mail_id': mailId,
+        'action': 'neutral',
+        'current_content': currentContent,
+        if (customPrompt != null && customPrompt.isNotEmpty) 'custom_prompt': customPrompt,
+      });
+      return (resp.data['content'] ?? '').toString();
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
+
+  /// Maili zorla onay kuyruğuna alır: AI taslak üretip status'u WAITING_APPROVAL yapar.
+  Future<String> forceReply(String mailId) async {
+    try {
+      final resp = await _dio.post('/force-reply/$mailId');
+      return (resp.data['draft'] ?? '').toString();
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
 }

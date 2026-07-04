@@ -5,6 +5,7 @@ import '../approval/approval_queue_screen.dart';
 import '../contacts/contacts_screen.dart';
 import '../core/network/api_exception.dart';
 import '../mail/mail_list_screen.dart';
+import '../media/media_gallery_screen.dart';
 import '../messaging/messaging_hub_screen.dart';
 import '../reminders/reminders_screen.dart';
 import '../search/search_results_screen.dart';
@@ -506,6 +507,16 @@ class _MainPageState extends State<MainPage> with SingleTickerProviderStateMixin
             color: const Color(0xFF8B5CF6),
             c: c,
             onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const WriterComposeScreen())),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: _buildQuickActionButton(
+            icon: Icons.perm_media_outlined,
+            label: 'Medya',
+            color: const Color(0xFFEC4899),
+            c: c,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MediaGalleryScreen())),
           ),
         ),
       ],

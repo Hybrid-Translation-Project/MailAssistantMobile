@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'auth/biometric_lock_screen.dart';
 import 'auth/license_gate_screen.dart';
 import 'auth/server_config_screen.dart';
 import 'core/storage/secure_storage_service.dart';
@@ -6,6 +7,7 @@ import 'login/login.dart';
 import 'mainpage/mainpage.dart';
 import 'core/network/realtime_service.dart';
 import 'services/auth_service.dart';
+import 'services/biometric_service.dart';
 import 'services/push_notification_service.dart';
 
 /// Uygulama açılışında sırayla kontrol eder:
@@ -57,9 +59,27 @@ class _AppRootState extends State<AppRoot> {
       // Lisans servisi cevap veremiyorsa kullanıcıyı kilitleme; girişe devam et.
     }
 
+    // Biyometrik/cihaz kilidi açıksa MainPage'den önce doğrulama iste.
+    final biometricOn = await BiometricService.instance.isEnabled();
+    if (biometricOn && await BiometricService.instance.canCheck()) {
+      _replaceWith(BiometricLockScreen(onUnlocked: _startSessionFrom));
+      return;
+    }
+
+    _startSession();
+    _replaceWith(const MainPage());
+  }
+
+  /// Oturum yan etkilerini başlatır (push token + realtime).
+  void _startSession() {
     PushNotificationService.instance.registerCurrentToken();
     RealtimeService.instance.connect();
-    _replaceWith(const MainPage());
+  }
+
+  /// Kilit ekranı doğrulamayı geçince çağrılır: oturumu başlatıp MainPage'e geçer.
+  void _startSessionFrom(BuildContext ctx) {
+    _startSession();
+    Navigator.of(ctx).pushReplacement(MaterialPageRoute(builder: (_) => const MainPage()));
   }
 
   void _replaceWith(Widget screen) {

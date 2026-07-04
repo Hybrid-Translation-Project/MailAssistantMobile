@@ -31,6 +31,39 @@ class MailSummary {
   }
 }
 
+/// Bir maildeki tek ek dosya. url alanı backend'de sabit localhost adresiyle
+/// saklanır (mobilden işe yaramaz); indirme URL'i message_id + filename'den
+/// cihaza kayıtlı sunucu adresine göre yeniden kurulur (bkz. mail_detail_screen).
+class MailAttachment {
+  final String filename;
+  final String contentType;
+  /// IMAP eklerinde dolu (localhost download linki), OAuth eklerinde boş.
+  /// Sadece IMAP/OAuth ayrımı için kullanılır, host'u kullanılmaz.
+  final String rawUrl;
+
+  MailAttachment({required this.filename, required this.contentType, required this.rawUrl});
+
+  bool get isOauth => rawUrl.isEmpty;
+
+  bool get isImage {
+    final ct = contentType.toLowerCase();
+    if (ct.startsWith('image/')) return true;
+    final name = filename.toLowerCase();
+    return name.endsWith('.png') ||
+        name.endsWith('.jpg') ||
+        name.endsWith('.jpeg') ||
+        name.endsWith('.gif') ||
+        name.endsWith('.webp') ||
+        name.endsWith('.bmp');
+  }
+
+  factory MailAttachment.fromJson(Map<String, dynamic> json) => MailAttachment(
+        filename: (json['filename'] ?? 'dosya').toString(),
+        contentType: (json['content_type'] ?? '').toString(),
+        rawUrl: (json['url'] ?? '').toString(),
+      );
+}
+
 class MailDetail {
   final String id;
   final String subject;
@@ -38,6 +71,10 @@ class MailDetail {
   final String body;
   final DateTime? date;
   final bool isOwner;
+  final String messageId;
+  final String replyDraft;
+  final List<String> tags;
+  final List<MailAttachment> attachments;
 
   MailDetail({
     required this.id,
@@ -46,6 +83,10 @@ class MailDetail {
     required this.body,
     required this.date,
     required this.isOwner,
+    this.messageId = '',
+    this.replyDraft = '',
+    this.tags = const [],
+    this.attachments = const [],
   });
 
   factory MailDetail.fromJson(Map<String, dynamic> json) => MailDetail(
@@ -55,5 +96,12 @@ class MailDetail {
         body: json['body'] ?? '',
         date: json['date'] != null ? DateTime.tryParse(json['date'].toString()) : null,
         isOwner: json['is_owner'] ?? false,
+        messageId: (json['message_id'] ?? '').toString(),
+        replyDraft: (json['reply_draft'] ?? '').toString(),
+        tags: (json['tags'] as List?)?.map((e) => e.toString()).toList() ?? const [],
+        attachments: (json['attachments'] as List?)
+                ?.map((e) => MailAttachment.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
       );
 }

@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:mail_assistant_mobile/main.dart' show themeNotifier;
 import 'package:mail_assistant_mobile/theme/app_colors.dart';
 import '../login/login.dart';
+import '../services/accounts_service.dart';
 import '../services/auth_service.dart';
+import '../services/biometric_service.dart';
+import '../services/preferences_service.dart';
 import '../services/profile_service.dart';
+import '../services/tags_service.dart';
 
 // ─── Profil Sayfası ───────────────────────────────────────────────────────
 class ProfilePage extends StatefulWidget {
@@ -251,6 +255,14 @@ class _SettingsPageState extends State<SettingsPage> {
       page: _NotificationsPage(),
     ),
     _SettingsItem(
+      section: 'GENEL TERCİHLER',
+      title: 'Mail Hesapları',
+      subtitle: 'Bağlı hesapları aç/kapat',
+      icon: Icons.alternate_email,
+      color: Color(0xFF14B8A6),
+      page: _MailAccountsPage(),
+    ),
+    _SettingsItem(
       section: 'OPTİMİZASYON',
       title: 'Panel Şifresi',
       subtitle: 'Giriş güvenlik ayarları',
@@ -469,18 +481,57 @@ class _AppearancePage extends StatefulWidget {
 class _AppearancePageState extends State<_AppearancePage> {
   String _language = 'tr';
 
-  final List<Map<String, dynamic>> _labels = [
-    {'text': 'AKİL', 'color': const Color(0xFFEF4444)},
-    {'text': 'ÇALIŞMA', 'color': const Color(0xFF3B82F6)},
-    {'text': 'CV', 'color': const Color(0xFFF59E0B)},
-    {'text': 'ÖNEMLİ', 'color': const Color(0xFF8B5CF6)},
-    {'text': 'TOPLANTI', 'color': const Color(0xFF22C55E)},
-    {'text': 'FATURA', 'color': const Color(0xFFEC4899)},
-  ];
+  List<MailTag> _tags = [];
+  bool _loadingTags = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTags();
+  }
+
+  Future<void> _loadTags() async {
+    try {
+      final tags = await TagsService.instance.getTags();
+      if (!mounted) return;
+      setState(() {
+        _tags = tags;
+        _loadingTags = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _loadingTags = false);
+    }
+  }
+
+  static Color _hexToColor(String hex) {
+    var h = hex.replaceAll('#', '').trim();
+    if (h.length == 6) h = 'FF$h';
+    final val = int.tryParse(h, radix: 16);
+    return val != null ? Color(val) : const Color(0xFF6366F1);
+  }
+
+  static String _colorToHex(Color color) {
+    final argb = color.toARGB32();
+    return '#${(argb & 0xFFFFFF).toRadixString(16).padLeft(6, '0').toUpperCase()}';
+  }
+
+  Future<void> _deleteTag(MailTag tag) async {
+    try {
+      await TagsService.instance.deleteTag(tag.id);
+      if (!mounted) return;
+      setState(() => _tags.removeWhere((t) => t.id == tag.id));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Silinemedi: $e')));
+    }
+  }
 
   void _showAddLabelDialog() {
     final controller = TextEditingController();
     Color selectedColor = const Color(0xFF6366F1);
+    bool saving = false;
+    String? error;
     final palette = [
       const Color(0xFFEF4444),
       const Color(0xFF3B82F6),
@@ -563,6 +614,10 @@ class _AppearancePageState extends State<_AppearancePage> {
                       );
                     }).toList(),
                   ),
+                  if (error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(error!, style: const TextStyle(color: Color(0xFFEF4444), fontSize: 12)),
+                  ],
                 ],
               ),
               actions: [
@@ -575,16 +630,33 @@ class _AppearancePageState extends State<_AppearancePage> {
                     backgroundColor: const Color(0xFF6366F1),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  onPressed: () {
-                    final text = controller.text.trim().toUpperCase();
-                    if (text.isNotEmpty) {
-                      setState(() {
-                        _labels.add({'text': text, 'color': selectedColor});
-                      });
-                      Navigator.pop(dialogContext);
-                    }
-                  },
-                  child: const Text('Ekle', style: TextStyle(color: Colors.white)),
+                  onPressed: saving
+                      ? null
+                      : () async {
+                          final text = controller.text.trim();
+                          if (text.isEmpty) {
+                            setDialogState(() => error = 'Etiket adı gerekli.');
+                            return;
+                          }
+                          setDialogState(() {
+                            saving = true;
+                            error = null;
+                          });
+                          try {
+                            final tag = await TagsService.instance.addTag(
+                              name: text,
+                              color: _colorToHex(selectedColor),
+                            );
+                            if (mounted) setState(() => _tags.add(tag));
+                            if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          } catch (e) {
+                            setDialogState(() {
+                              saving = false;
+                              error = e.toString();
+                            });
+                          }
+                        },
+                  child: Text(saving ? '...' : 'Ekle', style: const TextStyle(color: Colors.white)),
                 ),
               ],
             );
@@ -636,19 +708,24 @@ class _AppearancePageState extends State<_AppearancePage> {
           const SizedBox(height: 10),
           _buildCard(
             c: c,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    ..._labels.map((l) => _buildLabelChip(l, c)),
-                    _buildAddLabelChip(c),
-                  ],
-                ),
-              ],
-            ),
+            child: _loadingTags
+                ? const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ..._tags.map((t) => _buildLabelChip(t, c)),
+                          _buildAddLabelChip(c),
+                        ],
+                      ),
+                    ],
+                  ),
           ),
         ],
       ),
@@ -723,8 +800,8 @@ class _AppearancePageState extends State<_AppearancePage> {
     );
   }
 
-  Widget _buildLabelChip(Map<String, dynamic> label, AppColors c) {
-    final color = label['color'] as Color;
+  Widget _buildLabelChip(MailTag tag, AppColors c) {
+    final color = _hexToColor(tag.color);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
@@ -736,14 +813,17 @@ class _AppearancePageState extends State<_AppearancePage> {
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            label['text'] as String,
+            tag.name,
             style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600),
           ),
-          const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => setState(() => _labels.remove(label)),
-            child: Icon(Icons.close, color: color, size: 14),
-          ),
+          // Sistem (seed) etiketleri silinemez.
+          if (!tag.isSystem) ...[
+            const SizedBox(width: 6),
+            GestureDetector(
+              onTap: () => _deleteTag(tag),
+              child: Icon(Icons.close, color: color, size: 14),
+            ),
+          ],
         ],
       ),
     );
@@ -994,9 +1074,45 @@ class _SecurityPage extends StatefulWidget {
 }
 
 class _SecurityPageState extends State<_SecurityPage> {
-  bool _twoFactor = true;
-  bool _biometric = true;
-  bool _suspiciousAlert = true;
+  bool _biometricEnabled = false;
+  bool _biometricAvailable = false;
+  bool _loadingBiometric = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometric();
+  }
+
+  Future<void> _loadBiometric() async {
+    final available = await BiometricService.instance.canCheck();
+    final enabled = await BiometricService.instance.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _biometricAvailable = available;
+      _biometricEnabled = enabled && available;
+      _loadingBiometric = false;
+    });
+  }
+
+  Future<void> _toggleBiometric(bool value) async {
+    if (value) {
+      // Açarken kullanıcının gerçekten doğrulayabildiğini kanıtlamasını iste.
+      final ok = await BiometricService.instance.authenticate(
+        reason: 'Cihaz kilidini etkinleştirmek için doğrulayın',
+      );
+      if (!ok) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Doğrulama başarısız, kilit açılamadı.')),
+        );
+        return;
+      }
+    }
+    await BiometricService.instance.setEnabled(value);
+    if (!mounted) return;
+    setState(() => _biometricEnabled = value);
+  }
 
   void _showChangePasswordDialog(AppColors c) {
     final oldController = TextEditingController();
@@ -1100,42 +1216,6 @@ class _SecurityPageState extends State<_SecurityPage> {
       body: ListView(
         padding: const EdgeInsets.all(20),
         children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-            decoration: BoxDecoration(
-              color: const Color(0xFF22C55E).withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFF22C55E).withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF22C55E).withValues(alpha: 0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.shield_outlined, color: Color(0xFF22C55E), size: 24),
-                ),
-                const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Hesabınız güvende',
-                      style: TextStyle(color: Color(0xFF22C55E), fontWeight: FontWeight.bold, fontSize: 15),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Son kontrol: 12/5/2026',
-                      style: TextStyle(color: c.textHint, fontSize: 12),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
           _buildSectionTitle('PANEL GİRİŞ ŞİFRESİ', c),
           const SizedBox(height: 10),
           _buildCard(
@@ -1176,45 +1256,49 @@ class _SecurityPageState extends State<_SecurityPage> {
             ),
           ),
           const SizedBox(height: 24),
-          _buildSectionTitle('GÜVENLİK', c),
+          _buildSectionTitle('CİHAZ KİLİDİ', c),
           const SizedBox(height: 10),
-          _buildCard(
-            c: c,
-            child: Column(
-              children: [
-                _buildToggleRow(
-                  c: c,
-                  icon: Icons.verified_user_outlined,
-                  iconColor: const Color(0xFF6366F1),
-                  title: 'İki Adımlı Doğrulama',
-                  subtitle: 'Giriş sırasında ek doğrulama iste',
-                  value: _twoFactor,
-                  onChanged: (v) => setState(() => _twoFactor = v),
-                  isLast: false,
+          if (_loadingBiometric)
+            _buildCard(
+              c: c,
+              child: const Padding(
+                padding: EdgeInsets.all(16),
+                child: Center(child: CircularProgressIndicator(color: Color(0xFF6366F1))),
+              ),
+            )
+          else if (!_biometricAvailable)
+            _buildCard(
+              c: c,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(Icons.info_outline, color: c.textHint, size: 18),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Bu cihazda biyometrik doğrulama veya ekran kilidi tanımlı değil.',
+                        style: TextStyle(color: c.textHint, fontSize: 12),
+                      ),
+                    ),
+                  ],
                 ),
-                _buildToggleRow(
-                  c: c,
-                  icon: Icons.fingerprint,
-                  iconColor: const Color(0xFF22C55E),
-                  title: 'Biyometrik Giriş',
-                  subtitle: 'Parmak izi / yüz tanıma ile aç',
-                  value: _biometric,
-                  onChanged: (v) => setState(() => _biometric = v),
-                  isLast: false,
-                ),
-                _buildToggleRow(
-                  c: c,
-                  icon: Icons.warning_amber_outlined,
-                  iconColor: const Color(0xFFF59E0B),
-                  title: 'Şüpheli Giriş Bildirimi',
-                  subtitle: 'Tanımadık cihazları bildir',
-                  value: _suspiciousAlert,
-                  onChanged: (v) => setState(() => _suspiciousAlert = v),
-                  isLast: true,
-                ),
-              ],
+              ),
+            )
+          else
+            _buildCard(
+              c: c,
+              child: _buildToggleRow(
+                c: c,
+                icon: Icons.fingerprint,
+                iconColor: const Color(0xFF22C55E),
+                title: 'Biyometrik / Cihaz Kilidi',
+                subtitle: 'Açılışta yüz tanıma, parmak izi veya cihaz PIN\'i iste',
+                value: _biometricEnabled,
+                onChanged: _toggleBiometric,
+                isLast: true,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -1230,28 +1314,66 @@ class _NotificationsPage extends StatefulWidget {
 }
 
 class _NotificationsPageState extends State<_NotificationsPage> {
-  static const _notifFreqOpts = ['30 dk', '1 saat', '3 saat', '6 saat', '12 saat', '1 gün', '2 gün', '3 gün'];
-  static const _mailFreqOpts  = ['1 dk', '5 dk', '15 dk', '30 dk', '1 saat', '3 saat'];
+  static const _dayOpts = [1, 2, 3, 5, 7, 14];
+  static const _minuteOpts = [1, 5, 15, 30, 60, 180];
 
-  late final List<Map<String, dynamic>> _notifItems;
-  late final List<Map<String, dynamic>> _mailItems;
+  bool _loading = true;
+  String? _error;
+
+  // Hatırlatıcılar (gün bazlı)
+  bool _draftEnabled = false;
+  int _draftDays = 3;
+  bool _aiEnabled = false;
+  int _aiDays = 3;
+  bool _replyEnabled = false;
+  int _replyDays = 3;
+  // Tarama aralıkları (dakika bazlı)
+  int _inbox = 5;
+  int _sent = 15;
+  int _wa = 15;
+  int _tg = 15;
 
   @override
   void initState() {
     super.initState();
-    _notifItems = [
-      {'title': 'Haberleştir',           'subtitle': 'Yeni mailleri anlık olarak bildir', 'icon': Icons.notifications_active_outlined, 'color': const Color(0xFF6366F1), 'value': true,  'freq': '3 gün', 'freqOpts': _notifFreqOpts},
-      {'title': 'Taslak Haberleştirici', 'subtitle': 'Taslaklar için hatırlatıcı gönder', 'icon': Icons.drafts_outlined,               'color': const Color(0xFF0EA5E9), 'value': true,  'freq': '3 gün', 'freqOpts': _notifFreqOpts},
-      {'title': 'AI Cevap Bildirimi',    'subtitle': 'AI yanıt oluşturduğunda bildir',    'icon': Icons.auto_awesome_outlined,         'color': const Color(0xFF8B5CF6), 'value': true,  'freq': '3 gün', 'freqOpts': _notifFreqOpts},
-      {'title': 'Cevap Sıklısı',         'subtitle': 'Cevapsız mailleri tekrar hatırlat', 'icon': Icons.replay_outlined,               'color': const Color(0xFFEC4899), 'value': false, 'freq': '3 gün', 'freqOpts': _notifFreqOpts},
-    ];
-    _mailItems = [
-      {'title': 'Mail Kontrol Sıklığı', 'subtitle': 'Arka planda mail tarama aralığı', 'icon': Icons.sync_outlined,   'color': const Color(0xFF22C55E), 'value': true,  'freq': '1 dk', 'freqOpts': _mailFreqOpts},
-      {'title': 'Gelen Kutusu',         'subtitle': 'Yeni gelen mailleri izle',        'icon': Icons.inbox_outlined,  'color': const Color(0xFFF59E0B), 'value': true,  'freq': null,   'freqOpts': null},
-      {'title': 'Giden Kutusu',         'subtitle': 'Gönderilen mail durumunu izle',   'icon': Icons.outbox_outlined, 'color': const Color(0xFFEA580C), 'value': false, 'freq': null,   'freqOpts': null},
-    ];
+    _load();
   }
 
+  Future<void> _load() async {
+    try {
+      final p = await PreferencesService.instance.getPreferences();
+      if (!mounted) return;
+      setState(() {
+        _draftEnabled = p.reminderDraftEnabled;
+        _draftDays = p.reminderDraftDays;
+        _aiEnabled = p.reminderAiPendingEnabled;
+        _aiDays = p.reminderAiPendingDays;
+        _replyEnabled = p.reminderAwaitingReplyEnabled;
+        _replyDays = p.reminderAwaitingReplyDays;
+        _inbox = p.inboxCheckInterval;
+        _sent = p.sentCheckInterval;
+        _wa = p.whatsappCheckInterval;
+        _tg = p.telegramCheckInterval;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  /// Tek alanı backend'e yazar; hata olursa kullanıcıyı bilgilendirir.
+  Future<void> _persist(String field, dynamic value) async {
+    try {
+      await PreferencesService.instance.update({field: value});
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Kaydedilemedi: $e')));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1259,50 +1381,137 @@ class _NotificationsPageState extends State<_NotificationsPage> {
     return Scaffold(
       backgroundColor: c.bg,
       appBar: _buildAppBar(context, 'Bildirimler'),
-      body: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          _buildSectionTitle('BİLDİRİMLER', c),
-          const SizedBox(height: 10),
-          _buildCard(
-            c: c,
-            child: Column(
-              children: _notifItems.asMap().entries.map((e) =>
-                _buildNotifRow(c, e.value, e.key, _notifItems, isLast: e.key == _notifItems.length - 1),
-              ).toList(),
-            ),
-          ),
-          const SizedBox(height: 24),
-          _buildSectionTitle('MAIL KONTROL', c),
-          const SizedBox(height: 10),
-          _buildCard(
-            c: c,
-            child: Column(
-              children: _mailItems.asMap().entries.map((e) =>
-                _buildNotifRow(c, e.value, e.key, _mailItems, isLast: e.key == _mailItems.length - 1),
-              ).toList(),
-            ),
-          ),
-        ],
-      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
+          : _error != null
+              ? Center(child: Text(_error!, style: TextStyle(color: c.textSecondary)))
+              : ListView(
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    _buildSectionTitle('HATIRLATICILAR', c),
+                    const SizedBox(height: 10),
+                    _buildCard(
+                      c: c,
+                      child: Column(
+                        children: [
+                          _buildReminderRow(c,
+                              icon: Icons.drafts_outlined,
+                              color: const Color(0xFF0EA5E9),
+                              title: 'Taslak Hatırlatıcı',
+                              subtitle: 'Bekleyen taslaklar için hatırlat',
+                              enabled: _draftEnabled,
+                              days: _draftDays,
+                              onToggle: (v) {
+                                setState(() => _draftEnabled = v);
+                                _persist('reminder_draft_enabled', v);
+                              },
+                              onDays: (d) {
+                                setState(() => _draftDays = d);
+                                _persist('reminder_draft_days', d);
+                              },
+                              isLast: false),
+                          _buildReminderRow(c,
+                              icon: Icons.auto_awesome_outlined,
+                              color: const Color(0xFF8B5CF6),
+                              title: 'AI Onay Hatırlatıcı',
+                              subtitle: 'Onay bekleyen AI taslakları için hatırlat',
+                              enabled: _aiEnabled,
+                              days: _aiDays,
+                              onToggle: (v) {
+                                setState(() => _aiEnabled = v);
+                                _persist('reminder_ai_pending_enabled', v);
+                              },
+                              onDays: (d) {
+                                setState(() => _aiDays = d);
+                                _persist('reminder_ai_pending_days', d);
+                              },
+                              isLast: false),
+                          _buildReminderRow(c,
+                              icon: Icons.replay_outlined,
+                              color: const Color(0xFFEC4899),
+                              title: 'Yanıt Bekleyen Hatırlatıcı',
+                              subtitle: 'Cevabı gelmeyen mailleri hatırlat',
+                              enabled: _replyEnabled,
+                              days: _replyDays,
+                              onToggle: (v) {
+                                setState(() => _replyEnabled = v);
+                                _persist('reminder_awaiting_reply_enabled', v);
+                              },
+                              onDays: (d) {
+                                setState(() => _replyDays = d);
+                                _persist('reminder_awaiting_reply_days', d);
+                              },
+                              isLast: true),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    _buildSectionTitle('TARAMA SIKLIĞI', c),
+                    const SizedBox(height: 10),
+                    _buildCard(
+                      c: c,
+                      child: Column(
+                        children: [
+                          _buildIntervalRow(c,
+                              icon: Icons.inbox_outlined,
+                              color: const Color(0xFF22C55E),
+                              title: 'Gelen Kutusu Tarama',
+                              minutes: _inbox,
+                              onMinutes: (m) {
+                                setState(() => _inbox = m);
+                                _persist('inbox_check_interval', m);
+                              },
+                              isLast: false),
+                          _buildIntervalRow(c,
+                              icon: Icons.outbox_outlined,
+                              color: const Color(0xFFEA580C),
+                              title: 'Giden Kutusu Tarama',
+                              minutes: _sent,
+                              onMinutes: (m) {
+                                setState(() => _sent = m);
+                                _persist('sent_check_interval', m);
+                              },
+                              isLast: false),
+                          _buildIntervalRow(c,
+                              icon: Icons.chat_outlined,
+                              color: const Color(0xFF25D366),
+                              title: 'WhatsApp Tarama',
+                              minutes: _wa,
+                              onMinutes: (m) {
+                                setState(() => _wa = m);
+                                _persist('whatsapp_check_interval', m);
+                              },
+                              isLast: false),
+                          _buildIntervalRow(c,
+                              icon: Icons.send_outlined,
+                              color: const Color(0xFF229ED9),
+                              title: 'Telegram Tarama',
+                              minutes: _tg,
+                              onMinutes: (m) {
+                                setState(() => _tg = m);
+                                _persist('telegram_check_interval', m);
+                              },
+                              isLast: true),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
     );
   }
 
-  Widget _buildNotifRow(
-    AppColors c,
-    Map<String, dynamic> item,
-    int idx,
-    List<Map<String, dynamic>> list, {
+  Widget _buildReminderRow(
+    AppColors c, {
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    required bool enabled,
+    required int days,
+    required ValueChanged<bool> onToggle,
+    required ValueChanged<int> onDays,
     required bool isLast,
   }) {
-    final icon     = item['icon']     as IconData;
-    final color    = item['color']    as Color;
-    final title    = item['title']    as String;
-    final subtitle = item['subtitle'] as String;
-    final value    = item['value']    as bool;
-    final freq     = item['freq']     as String?;
-    final freqOpts = item['freqOpts'] as List<String>?;
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
       decoration: BoxDecoration(
@@ -1326,91 +1535,266 @@ class _NotificationsPageState extends State<_NotificationsPage> {
               ],
             ),
           ),
-          if (freq != null && freqOpts != null) ...[
+          if (enabled) ...[
             const SizedBox(width: 6),
-            Builder(builder: (chipCtx) => GestureDetector(
-              onTap: value ? () async {
-                final box = chipCtx.findRenderObject() as RenderBox;
-                final offset = box.localToGlobal(Offset.zero);
-                final size = box.size;
-                final screen = MediaQuery.of(chipCtx).size;
-                const accent = Color(0xFF6366F1);
-
-                final selected = await showMenu<String>(
-                  context: chipCtx,
-                  position: RelativeRect.fromLTRB(
-                    offset.dx,
-                    offset.dy + size.height + 4,
-                    screen.width - offset.dx - size.width,
-                    screen.height - offset.dy - size.height - 4,
-                  ),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  color: c.card,
-                  elevation: c.isDark ? 8 : 3,
-                  constraints: const BoxConstraints(minWidth: 120),
-                  items: freqOpts.asMap().entries.map((entry) {
-                    final i = entry.key;
-                    final opt = entry.value;
-                    final isSelected = opt == freq;
-                    return PopupMenuItem<String>(
-                      value: opt,
-                      padding: EdgeInsets.zero,
-                      height: 40,
-                      child: Container(
-                        height: 40,
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        decoration: BoxDecoration(
-                          color: isSelected ? accent.withValues(alpha: 0.1) : Colors.transparent,
-                          border: i < freqOpts.length - 1
-                              ? Border(bottom: BorderSide(color: c.divider, width: 0.5))
-                              : null,
-                        ),
-                        child: Row(
-                          children: [
-                            Text(opt, style: TextStyle(
-                              color: isSelected ? accent : c.textPrimary,
-                              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-                              fontSize: 13,
-                            )),
-                            const Spacer(),
-                            if (isSelected) const Icon(Icons.check_rounded, color: accent, size: 14),
-                          ],
-                        ),
-                      ),
-                    );
-                  }).toList(),
-                );
-
-                if (!mounted) return;
-                if (selected != null) setState(() => list[idx]['freq'] = selected);
-              } : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-                decoration: BoxDecoration(
-                  color: value ? color.withValues(alpha: 0.15) : c.inputBg,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: value ? color.withValues(alpha: 0.4) : c.cardBorder),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(freq, style: TextStyle(color: value ? color : c.textHint, fontSize: 10, fontWeight: FontWeight.w600)),
-                    const SizedBox(width: 2),
-                    Icon(Icons.keyboard_arrow_down_rounded, color: value ? color : c.textHint, size: 12),
-                  ],
-                ),
-              ),
-            )),
+            _buildValueChip(c, color, '$days gün', enabled,
+                () => _pickValue(c, _dayOpts, days, (v) => '$v gün', onDays)),
           ],
           Switch(
-            value: value,
-            onChanged: (v) => setState(() => list[idx]['value'] = v),
+            value: enabled,
+            onChanged: onToggle,
             activeThumbColor: const Color(0xFF6366F1),
             activeTrackColor: const Color(0xFF6366F1).withValues(alpha: 0.3),
             inactiveThumbColor: c.switchInactiveThumb,
             inactiveTrackColor: c.switchInactiveTrack,
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildIntervalRow(
+    AppColors c, {
+    required IconData icon,
+    required Color color,
+    required String title,
+    required int minutes,
+    required ValueChanged<int> onMinutes,
+    required bool isLast,
+  }) {
+    String label(int m) => m >= 60 ? '${m ~/ 60} saat' : '$m dk';
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+      decoration: BoxDecoration(
+        border: isLast ? null : Border(bottom: BorderSide(color: c.divider, width: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36, height: 36,
+            decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(8)),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(title, style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.w500)),
+          ),
+          _buildValueChip(c, color, label(minutes), true,
+              () => _pickValue(c, _minuteOpts, minutes, label, onMinutes)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildValueChip(AppColors c, Color color, String text, bool active, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: active ? onTap : null,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? color.withValues(alpha: 0.15) : c.inputBg,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: active ? color.withValues(alpha: 0.4) : c.cardBorder),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(text, style: TextStyle(color: active ? color : c.textHint, fontSize: 10, fontWeight: FontWeight.w600)),
+            const SizedBox(width: 2),
+            Icon(Icons.keyboard_arrow_down_rounded, color: active ? color : c.textHint, size: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickValue(
+    AppColors c,
+    List<int> options,
+    int current,
+    String Function(int) label,
+    ValueChanged<int> onSelected,
+  ) async {
+    const accent = Color(0xFF6366F1);
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      backgroundColor: c.card,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: options.map((opt) {
+            final isSelected = opt == current;
+            return ListTile(
+              title: Text(label(opt),
+                  style: TextStyle(
+                    color: isSelected ? accent : c.textPrimary,
+                    fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                  )),
+              trailing: isSelected ? const Icon(Icons.check_rounded, color: accent, size: 18) : null,
+              onTap: () => Navigator.pop(context, opt),
+            );
+          }).toList(),
+        ),
+      ),
+    );
+    if (selected != null && selected != current) onSelected(selected);
+  }
+}
+
+// ─── Mail Hesapları (aç/kapa) ─────────────────────────────────────────────
+class _MailAccountsPage extends StatefulWidget {
+  const _MailAccountsPage();
+
+  @override
+  State<_MailAccountsPage> createState() => _MailAccountsPageState();
+}
+
+class _MailAccountsPageState extends State<_MailAccountsPage> {
+  List<MailAccount> _accounts = [];
+  bool _loading = true;
+  String? _error;
+  final Set<String> _busy = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final accounts = await AccountsService.instance.getAccounts();
+      if (!mounted) return;
+      setState(() {
+        _accounts = accounts;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _toggle(MailAccount acc) async {
+    setState(() => _busy.add(acc.id));
+    try {
+      final newActive = await AccountsService.instance.toggle(acc.id);
+      if (!mounted) return;
+      setState(() {
+        final idx = _accounts.indexWhere((a) => a.id == acc.id);
+        if (idx != -1) {
+          _accounts[idx] = MailAccount(id: acc.id, email: acc.email, isActive: newActive);
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Değiştirilemedi: $e')));
+    } finally {
+      if (mounted) setState(() => _busy.remove(acc.id));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = AppColors.of(context);
+    return Scaffold(
+      backgroundColor: c.bg,
+      appBar: _buildAppBar(context, 'Mail Hesapları'),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFF6366F1)))
+          : _error != null
+              ? Center(child: Text(_error!, style: TextStyle(color: c.textSecondary)))
+              : RefreshIndicator(
+                  onRefresh: _load,
+                  child: ListView(
+                    padding: const EdgeInsets.all(20),
+                    children: [
+                      Text(
+                        'Hesap ekleme ve silme işlemleri web panelinden yapılır. '
+                        'Buradan yalnızca hesapları geçici olarak aktif/pasif yapabilirsiniz.',
+                        style: TextStyle(color: c.textHint, fontSize: 12),
+                      ),
+                      const SizedBox(height: 16),
+                      if (_accounts.isEmpty)
+                        _buildCard(
+                          c: c,
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Text('Bağlı mail hesabı yok.', style: TextStyle(color: c.textSecondary, fontSize: 13)),
+                          ),
+                        )
+                      else
+                        _buildCard(
+                          c: c,
+                          child: Column(
+                            children: _accounts.asMap().entries.map((e) {
+                              final isLast = e.key == _accounts.length - 1;
+                              return _buildAccountRow(c, e.value, isLast);
+                            }).toList(),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+    );
+  }
+
+  Widget _buildAccountRow(AppColors c, MailAccount acc, bool isLast) {
+    final busy = _busy.contains(acc.id);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+      decoration: BoxDecoration(
+        border: isLast ? null : Border(bottom: BorderSide(color: c.divider, width: 0.5)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: (acc.isActive ? const Color(0xFF22C55E) : c.textHint).withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(Icons.mail_outline,
+                color: acc.isActive ? const Color(0xFF22C55E) : c.textHint, size: 18),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(acc.email,
+                    style: TextStyle(color: c.textPrimary, fontSize: 13, fontWeight: FontWeight.w500),
+                    overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 2),
+                Text(acc.isActive ? 'Aktif' : 'Pasif', style: TextStyle(color: c.textHint, fontSize: 11)),
+              ],
+            ),
+          ),
+          if (busy)
+            const SizedBox(width: 40, height: 24, child: Center(
+              child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF6366F1))),
+            ))
+          else
+            Switch(
+              value: acc.isActive,
+              onChanged: (_) => _toggle(acc),
+              activeThumbColor: const Color(0xFF6366F1),
+              activeTrackColor: const Color(0xFF6366F1).withValues(alpha: 0.3),
+              inactiveThumbColor: c.switchInactiveThumb,
+              inactiveTrackColor: c.switchInactiveTrack,
+            ),
         ],
       ),
     );

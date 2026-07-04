@@ -30,4 +30,14 @@ class AccountsService {
       throw ApiException.fromDioException(e);
     }
   }
+
+  /// Hesabı aktif/pasif yapar. Yeni is_active değerini döner.
+  Future<bool> toggle(String accountId) async {
+    try {
+      final resp = await _dio.patch('/accounts/$accountId/toggle');
+      return (resp.data['is_active'] ?? false) as bool;
+    } on DioException catch (e) {
+      throw ApiException.fromDioException(e);
+    }
+  }
 }

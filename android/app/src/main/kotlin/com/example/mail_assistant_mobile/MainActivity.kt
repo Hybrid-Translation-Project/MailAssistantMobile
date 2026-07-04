@@ -1,5 +1,6 @@
 package com.example.mail_assistant_mobile
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// local_auth eklentisi biyometrik doğrulama için FragmentActivity gerektirir.
+class MainActivity : FlutterFragmentActivity()

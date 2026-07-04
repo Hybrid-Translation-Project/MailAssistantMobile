@@ -12,9 +12,17 @@ class SecureStorageService {
   static const _kAccessToken = 'access_token';
   static const _kRefreshToken = 'refresh_token';
   static const _kDeviceToken = 'device_token';
+  static const _kBiometricEnabled = 'biometric_enabled';
 
   Future<String?> getServerUrl() => _storage.read(key: _kServerUrl);
   Future<void> setServerUrl(String url) => _storage.write(key: _kServerUrl, value: url);
+
+  /// Cihaz kilidi (biyometrik/PIN) açılışta istenip istenmeyeceği — cihaz-yerel
+  /// tercih, sunucuya gönderilmez.
+  Future<bool> getBiometricEnabled() async =>
+      (await _storage.read(key: _kBiometricEnabled)) == 'true';
+  Future<void> setBiometricEnabled(bool enabled) =>
+      _storage.write(key: _kBiometricEnabled, value: enabled ? 'true' : 'false');
 
   Future<String?> getAccessToken() => _storage.read(key: _kAccessToken);
   Future<void> setAccessToken(String token) => _storage.write(key: _kAccessToken, value: token);
