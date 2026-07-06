@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:mail_assistant_mobile/main.dart' show themeNotifier;
 import 'package:mail_assistant_mobile/theme/app_colors.dart';
+import '../admin/admin_panel_screen.dart';
+import '../core/storage/secure_storage_service.dart';
 import '../login/login.dart';
 import '../services/accounts_service.dart';
 import '../services/auth_service.dart';
@@ -20,11 +22,21 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   String _fullName = '';
   bool _loading = true;
+  // Yalnız admin girişinde Yönetici Paneli butonunu göstermek için.
+  // Normal kullanıcıda buton hiç render edilmez, rol bilgisi de gösterilmez.
+  bool _isAdmin = false;
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
+    _loadIsAdmin();
+  }
+
+  Future<void> _loadIsAdmin() async {
+    final isAdmin = await SecureStorageService.instance.getIsAdmin();
+    if (!mounted) return;
+    setState(() => _isAdmin = isAdmin);
   }
 
   Future<void> _loadProfile() async {
@@ -180,6 +192,29 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget _buildActionButtons(BuildContext context, AppColors c) {
     return Column(
       children: [
+        if (_isAdmin) ...[
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AdminPanelScreen()),
+                ).then((_) => _loadIsAdmin()); // 403 sonrası buton kaybolsun
+              },
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: Color(0xFF6366F1)),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+              icon: const Icon(Icons.admin_panel_settings_outlined,
+                  color: Color(0xFF6366F1), size: 16),
+              label: const Text('Yönetici Paneli',
+                  style: TextStyle(color: Color(0xFF6366F1), fontSize: 13)),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         Row(
           children: [
             Expanded(

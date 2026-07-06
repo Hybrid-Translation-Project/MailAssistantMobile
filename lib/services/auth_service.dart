@@ -38,7 +38,10 @@ class AuthService {
       final data = resp.data as Map<String, dynamic>;
       await SecureStorageService.instance.setAccessToken(data['access_token']);
       await SecureStorageService.instance.setRefreshToken(data['refresh_token']);
-      return UserInfo.fromJson(data['user']);
+      final userInfo = UserInfo.fromJson(data['user']);
+      // Admin girişi (Yönetici Paneli butonu) için rol bilgisini sakla.
+      await SecureStorageService.instance.setIsAdmin(userInfo.role == 'admin');
+      return userInfo;
     } on DioException catch (e) {
       throw ApiException.fromDioException(e);
     }
@@ -55,7 +58,11 @@ class AuthService {
 
   Future<LicenseStatus> licenseStatus() async {
     final resp = await _dio.get('/auth/license-status');
-    return LicenseStatus.fromJson(resp.data as Map<String, dynamic>);
+    final status = LicenseStatus.fromJson(resp.data as Map<String, dynamic>);
+    // Her başarılı kontrolde admin bayrağını tazele (boot + login sonrası
+    // zaten çağrılıyor) — web'den yetki verilmiş/alınmışsa yeni girişte yansır.
+    await SecureStorageService.instance.setIsAdmin(status.isAdmin);
+    return status;
   }
 
   /// FCM token ilk elde edildiğinde ya da yenilendiğinde çağrılır.

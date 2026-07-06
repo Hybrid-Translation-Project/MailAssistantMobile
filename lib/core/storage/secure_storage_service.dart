@@ -13,6 +13,7 @@ class SecureStorageService {
   static const _kRefreshToken = 'refresh_token';
   static const _kDeviceToken = 'device_token';
   static const _kBiometricEnabled = 'biometric_enabled';
+  static const _kIsAdmin = 'is_admin';
 
   Future<String?> getServerUrl() => _storage.read(key: _kServerUrl);
   Future<void> setServerUrl(String url) => _storage.write(key: _kServerUrl, value: url);
@@ -33,10 +34,20 @@ class SecureStorageService {
   Future<String?> getDeviceToken() => _storage.read(key: _kDeviceToken);
   Future<void> setDeviceToken(String token) => _storage.write(key: _kDeviceToken, value: token);
 
+  /// Kullanıcının admin olup olmadığı — login ve license-status yanıtlarından
+  /// güncellenir. Sunucu tarafı yetki denetiminin (require_admin) yerine geçmez,
+  /// yalnızca admin girişinin (Yönetici Paneli butonu) gösterilip
+  /// gösterilmeyeceğini belirler.
+  Future<bool> getIsAdmin() async =>
+      (await _storage.read(key: _kIsAdmin)) == 'true';
+  Future<void> setIsAdmin(bool isAdmin) =>
+      _storage.write(key: _kIsAdmin, value: isAdmin ? 'true' : 'false');
+
   /// Çıkış yapılınca oturum bilgisini temizler, sunucu adresini korur.
   Future<void> clearAuth() async {
     await _storage.delete(key: _kAccessToken);
     await _storage.delete(key: _kRefreshToken);
+    await _storage.delete(key: _kIsAdmin);
   }
 
   /// Sunucu adresi değiştirilirken (farklı kuruluma geçiş) her şeyi temizler.
